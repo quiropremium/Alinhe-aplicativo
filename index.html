@@ -68,6 +68,7 @@
       border-radius: 16px;
       padding: 18px;
       text-align: center;
+      transition: background-color 0.3s ease;
     }
 
     .status-badge {
@@ -325,7 +326,6 @@
     let selectedDays = 365;
     let isPremium = false;
 
-    // Executa ao carregar a página de forma segura
     window.addEventListener('DOMContentLoaded', () => {
       const expirationDate = localStorage.getItem('alinhe_expiration');
       const now = new Date().getTime();
@@ -370,7 +370,7 @@
         video.style.display = "block";
         alert("Câmera conectada com sucesso!");
       } catch (err) {
-        alert("Erro ao acessar a câmera. Certifique-se de usar HTTPS (Netlify) e permitir o acesso.");
+        alert("Erro ao acessar a câmera. Certifique-se de usar HTTPS e permitir o acesso.");
       }
     }
 
@@ -408,26 +408,31 @@
     }
 
     function handleOrientation(event) {
-      let pitch = event.beta;
+      let pitch = event.beta; // Ângulo de inclinação vertical do celular
       const card = document.getElementById('status-card');
       const badge = document.getElementById('status-badge');
       const title = document.getElementById('status-title');
       const desc = document.getElementById('status-desc');
 
-      if (pitch && pitch > 45) {
-        if (card) card.style.backgroundColor = "#3B1818";
-        if (badge) {
-          badge.style.backgroundColor = "var(--danger)";
-          badge.innerText = "⚠️";
-        }
-        if (title) title.innerText = "CORRIJA A POSTURA!";
-        if (desc) desc.innerText = "Eleve o celular na altura dos olhos";
+      // Lógica corrigida: Quando em pé na altura dos olhos, o pitch fica tipicamente entre 30° e 60°. 
+      // Se deitado na mesa, o pitch aproxima-se de 0° ou 180°.
+      if (pitch !== null) {
+        // Se a inclinação for menor que 20° (quase deitado plano) ou muito virado para baixo, avisa postura incorreta
+        if (pitch < 20 || pitch > 130) {
+          if (card) card.style.backgroundColor = "#3B1818";
+          if (badge) {
+            badge.style.backgroundColor = "var(--danger)";
+            badge.innerText = "⚠️";
+          }
+          if (title) title.innerText = "CORRIJA A POSTURA!";
+          if (desc) desc.innerText = "Eleve o celular na altura dos olhos";
 
-        if (navigator.vibrate) {
-          navigator.vibrate(300);
+          if (navigator.vibrate) {
+            navigator.vibrate([200, 100, 200]); // Vibração padrão de alerta duplo
+          }
+        } else {
+          resetStatus();
         }
-      } else {
-        resetStatus();
       }
     }
 
