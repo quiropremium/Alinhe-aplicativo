@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Alinhe - Postura Correta</title>
 
+  <!-- Libs leves do MediaPipe para Rastreamento Facial de Alta Precisão -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+
   <style>
     :root {
       --bg-color: #0b2230;
@@ -192,12 +196,13 @@
     }
 
     #camera-preview {
-      display: none;
       width: 100%;
-      height: 140px;
+      height: 180px;
       object-fit: cover;
-      border-radius: 12px;
+      border-radius: 14px;
+      border: 2px solid var(--accent);
       margin-top: 10px;
+      transform: scaleX(-1); /* Espelhamento natural */
     }
   </style>
 </head>
@@ -217,19 +222,18 @@
       <div class="card" id="status-card">
         <div class="status-badge" id="status-badge">✓</div>
         <h3 id="status-title" style="font-size: 18px;">POSTURA ALINHADA!</h3>
-        <p id="status-desc" style="color: var(--subtext); font-size: 14px; margin-top: 4px;">Celular na altura dos olhos</p>
+        <p id="status-desc" style="color: var(--subtext); font-size: 14px; margin-top: 4px;">Olhar reto na câmara (85° - 90°)</p>
       </div>
 
-      <video id="camera-preview" autoplay playsinline></video>
+      <video id="camera-preview" autoplay playsinline muted></video>
 
       <div class="card" style="text-align: left; padding: 14px;">
-        <h4 style="margin-bottom: 8px; font-size: 16px;">Como funciona:</h4>
-        <p style="font-size: 13px; color: var(--subtext); margin-bottom: 6px;">📱 Mantenha o dispositivo paralelo ao rosto</p>
-        <p style="font-size: 13px; color: var(--subtext);">🧍 O Alinhe vibrará se a cabeça inclinar</p>
+        <h4 style="margin-bottom: 8px; font-size: 15px;">Monitoramento de Visão IA:</h4>
+        <p style="font-size: 12px; color: var(--subtext); margin-bottom: 4px;">🎯 Mantenha o rosto centralizado no visor acima.</p>
+        <p style="font-size: 12px; color: var(--subtext);">👁️ Se a cabeça inclinar para baixo, o alerta é imediato.</p>
       </div>
 
-      <button class="btn" onclick="toggleMonitoring()" id="btn-monitor">INICIAR MONITORAMENTO</button>
-      <button class="btn-secondary" onclick="calibrateCamera()">📷 Calibrar Câmera</button>
+      <button class="btn" onclick="toggleMonitoring()" id="btn-monitor">INICIAR MONITORAMENTO IA</button>
       <button class="btn-secondary" onclick="openStatsPage()">📊 Relatório de Postura <span id="lock-icon">🔒</span></button>
 
       <div class="ad-banner" id="ad-banner">
@@ -325,6 +329,9 @@
     let checkoutUrl = "https://mpago.la/SEU_LINK_ANUAL";
     let selectedDays = 365;
     let isPremium = false;
+    let cameraInstance = null;
+    let faceMesh = null;
+    let isMonitoring = false;
 
     window.addEventListener('DOMContentLoaded', () => {
       const expirationDate = localStorage.getItem('alinhe_expiration');
@@ -362,77 +369,113 @@
       }
     }
 
-    async function calibrateCamera() {
-      const video = document.getElementById('camera-preview');
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
-        video.srcObject = stream;
-        video.style.display = "block";
-        alert("Câmera conectada com sucesso!");
-      } catch (err) {
-        alert("Erro ao acessar a câmera. Certifique-se de usar HTTPS e permitir o acesso.");
-      }
-    }
-
-    let isMonitoring = false;
-
     async function toggleMonitoring() {
       const btn = document.getElementById('btn-monitor');
+      const videoElement = document.getElementById('camera-preview');
 
       if (!isMonitoring) {
-        if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-          try {
-            const permissionState = await DeviceOrientationEvent.requestPermission();
-            if (permissionState !== 'granted') {
-              alert('Permissão para o sensor negada.');
-              return;
-            }
-          } catch (error) {
-            console.error(error);
-          }
-        }
+        btn.innerText = "CARREGANDO IA...";
+        
+        // Inicializa o rastreamento facial leve do MediaPipe
+        faceMesh = new FaceMesh({
+          locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+        });
 
-        window.addEventListener('deviceorientation', handleOrientation);
-        isMonitoring = true;
-        btn.innerText = "PARAR MONITORAMENTO";
-        btn.style.backgroundColor = "var(--danger)";
-        btn.style.color = "#FFFFFF";
+        faceMesh.setOptions({
+          maxNumFaces: 1,
+          refineLandmarks: true,
+          minDetectionConfidence: 0.6,
+          minTrackingConfidence: 0.6
+        });
+
+        faceMesh.onResults(onFaceResults);
+
+        cameraInstance = new Camera(videoElement, {
+          onFrame: async () => {
+            if (isMonitoring) {
+              await faceMesh.send({ image: videoElement });
+            }
+          },
+          width: 640,
+          height: 480
+        });
+
+        try {
+          await cameraInstance.start();
+          isMonitoring = true;
+          btn.innerText = "PARAR MONITORAMENTO";
+          btn.style.backgroundColor = "var(--danger)";
+          btn.style.color = "#FFFFFF";
+        } catch (err) {
+          alert("Não foi possível aceder à câmara frontal. Verifique as permissões do navegador.");
+          btn.innerText = "INICIAR MONITORAMENTO IA";
+        }
       } else {
-        window.removeEventListener('deviceorientation', handleOrientation);
         isMonitoring = false;
-        btn.innerText = "INICIAR MONITORAMENTO";
+        if (cameraInstance) {
+          await cameraInstance.stop();
+        }
+        btn.innerText = "INICIAR MONITORAMENTO IA";
         btn.style.backgroundColor = "var(--accent)";
         btn.style.color = "#0b2230";
         resetStatus();
       }
     }
 
-    function handleOrientation(event) {
-      let pitch = event.beta; // Ângulo de inclinação vertical do celular
+    function onFaceResults(results) {
+      if (!isMonitoring) return;
+
       const card = document.getElementById('status-card');
       const badge = document.getElementById('status-badge');
       const title = document.getElementById('status-title');
       const desc = document.getElementById('status-desc');
 
-      // Lógica corrigida: Quando em pé na altura dos olhos, o pitch fica tipicamente entre 30° e 60°. 
-      // Se deitado na mesa, o pitch aproxima-se de 0° ou 180°.
-      if (pitch !== null) {
-        // Se a inclinação for menor que 20° (quase deitado plano) ou muito virado para baixo, avisa postura incorreta
-        if (pitch < 20 || pitch > 130) {
+      if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+        const landmarks = results.multiFaceLandmarks[0];
+
+        // Pontos de referência faciais:
+        // 1: Ponta do Nariz
+        // 152: Queixo
+        // 10: Topo da Testa
+        const noseTip = landmarks[1];
+        const chin = landmarks[152];
+        const forehead = landmarks[10];
+
+        // Distância vertical entre testa e queixo (altura visual do rosto)
+        const faceHeight = Math.abs(chin.y - forehead.y);
+        
+        // Cálculo da proporção de inclinação vertical (Pitch da cabeça)
+        const noseToChinDistance = chin.y - noseTip.y;
+        const pitchRatio = noseToChinDistance / faceHeight;
+
+        // Se o queixo subir muito relativo ao nariz ou o rosto descer no quadro (cabeça inclinada para baixo)
+        // Zona segura ideal de olhar ereto a 85°-90°: pitchRatio > 0.35 e testa.y < 0.6
+        const isHeadTiltedDown = pitchRatio < 0.32 || noseTip.y > 0.65;
+
+        if (isHeadTiltedDown) {
           if (card) card.style.backgroundColor = "#3B1818";
           if (badge) {
             badge.style.backgroundColor = "var(--danger)";
             badge.innerText = "⚠️";
           }
-          if (title) title.innerText = "CORRIJA A POSTURA!";
-          if (desc) desc.innerText = "Eleve o celular na altura dos olhos";
+          if (title) title.innerText = "POSTURA INCORRETA!";
+          if (desc) desc.innerText = "Erga a cabeça! Olhar reto a 90°";
 
           if (navigator.vibrate) {
-            navigator.vibrate([200, 100, 200]); // Vibração padrão de alerta duplo
+            navigator.vibrate([200, 100, 200]);
           }
         } else {
           resetStatus();
         }
+      } else {
+        // Se a pessoa desviar totalmente da câmara ou guardar o telemóvel
+        if (card) card.style.backgroundColor = "var(--card-bg)";
+        if (badge) {
+          badge.style.backgroundColor = "var(--subtext)";
+          badge.innerText = "❓";
+        }
+        if (title) title.innerText = "ROSTO NÃO DETECTADO";
+        if (desc) desc.innerText = "Posicione a câmara na altura dos olhos";
       }
     }
 
@@ -448,7 +491,7 @@
         badge.innerText = "✓";
       }
       if (title) title.innerText = "POSTURA ALINHADA!";
-      if (desc) desc.innerText = "Celular na altura dos olhos";
+      if (desc) desc.innerText = "Olhar reto na câmara (85° - 90°)";
     }
 
     function selectPlan(element, url, days) {
