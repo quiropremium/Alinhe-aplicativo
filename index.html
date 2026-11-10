@@ -195,14 +195,35 @@
       background-color: var(--accent);
     }
 
-    #camera-preview {
+    .camera-container {
+      position: relative;
       width: 100%;
-      height: 180px;
-      object-fit: cover;
+      height: 220px;
       border-radius: 14px;
+      overflow: hidden;
       border: 2px solid var(--accent);
       margin-top: 10px;
+    }
+
+    #camera-preview {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
       transform: scaleX(-1);
+    }
+
+    /* Guia oval estilo reconhecimento facial de banco */
+    .face-guide-overlay {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 130px;
+      height: 170px;
+      border: 3px dashed var(--accent);
+      border-radius: 50%;
+      pointer-events: none;
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.4);
     }
   </style>
 </head>
@@ -220,21 +241,22 @@
       </div>
 
       <div class="card" id="status-card">
-        <div class="status-badge" id="status-badge">✓</div>
-        <h3 id="status-title" style="font-size: 18px;">POSTURA ALINHADA!</h3>
-        <p id="status-desc" style="color: var(--subtext); font-size: 14px; margin-top: 4px;">Tronco ereto e ombros encaixados</p>
+        <div class="status-badge" id="status-badge">📸</div>
+        <h3 id="status-title" style="font-size: 18px;">AGUARDANDO CALIBRAÇÃO</h3>
+        <p id="status-desc" style="color: var(--subtext); font-size: 14px; margin-top: 4px;">Encaixe o rosto no guia para começar</p>
       </div>
 
-      <video id="camera-preview" autoplay playsinline muted></video>
-
-      <div class="card" style="text-align: left; padding: 14px;">
-        <h4 style="margin-bottom: 8px; font-size: 15px;">Anti-Curvatura (Postura C):</h4>
-        <p style="font-size: 12px; color: var(--subtext); margin-bottom: 4px;">1. Sente-se ereto com os ombros para trás.</p>
-        <p style="font-size: 12px; color: var(--subtext);">2. Mantenha o pescoço recolhido sem projetar o queixo.</p>
+      <div class="camera-container">
+        <video id="camera-preview" autoplay playsinline muted></video>
+        <div class="face-guide-overlay"></div>
       </div>
 
-      <button class="btn" onclick="toggleMonitoring()" id="btn-monitor">INICIAR MONITORAMENTO IA</button>
-      <button class="btn-secondary" onclick="calibratePosture()">🎯 Calibrar Postura Erguida</button>
+      <div class="card" style="text-align: left; padding: 12px;">
+        <h4 style="margin-bottom: 6px; font-size: 14px;" id="instruction-title">Passo 1: Calibração Facial de Banco</h4>
+        <p style="font-size: 12px; color: var(--subtext);" id="instruction-desc">Sente-se reto, alinhe o tronco e olhe direto para a câmara antes de travar.</p>
+      </div>
+
+      <button class="btn" onclick="startCalibrationStep()" id="btn-action">CALIBRAR POSTURA IDEAL</button>
       <button class="btn-secondary" onclick="openStatsPage()">📊 Relatório de Postura <span id="lock-icon">🔒</span></button>
 
       <div class="ad-banner" id="ad-banner">
@@ -332,11 +354,13 @@
     let isPremium = false;
     let cameraInstance = null;
     let faceMesh = null;
-    let isMonitoring = false;
+    
+    // Estados do aplicativo: 'IDLE', 'CALIBRATING', 'MONITORING'
+    let appState = 'IDLE';
 
-    // Métricas de calibração para detectar curvatura do pescoço/tronco
-    let calibratedFaceSize = null;
-    let calibratedChinRatio = null;
+    // Referências base capturadas no momento da calibração estilo banco
+    let baseFaceWidth = null;
+    let baseChinRatio = null;
 
     window.addEventListener('DOMContentLoaded', () => {
       const expirationDate = localStorage.getItem('alinhe_expiration');
@@ -352,6 +376,9 @@
         if (lockIcon) lockIcon.style.display = 'none';
         if (badge) badge.innerText = "✨ Ativo";
       }
+
+      // Inicializa a câmara imediatamente para a moldura guiar o usuário
+      initCameraPreview();
     });
 
     function navigate(pageId) {
@@ -374,148 +401,143 @@
       }
     }
 
-    function calibratePosture() {
-      calibratedFaceSize = null;
-      calibratedChinRatio = null;
-      alert("Fique na postura ideal da DIREITA (tronco reto, pescoço recolhido) e inicie o monitoramento.");
-    }
-
-    async function toggleMonitoring() {
-      const btn = document.getElementById('btn-monitor');
+    async function initCameraPreview() {
       const videoElement = document.getElementById('camera-preview');
+      
+      faceMesh = new FaceMesh({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+      });
 
-      if (!isMonitoring) {
-        btn.innerText = "CARREGANDO IA...";
-        
-        faceMesh = new FaceMesh({
-          locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
-        });
+      faceMesh.setOptions({
+        maxNumFaces: 1,
+        refineLandmarks: true,
+        minDetectionConfidence: 0.6,
+        minTrackingConfidence: 0.6
+      });
 
-        faceMesh.setOptions({
-          maxNumFaces: 1,
-          refineLandmarks: true,
-          minDetectionConfidence: 0.6,
-          minTrackingConfidence: 0.6
-        });
+      faceMesh.onResults(processFaceLogic);
 
-        faceMesh.onResults(onFaceResults);
+      cameraInstance = new Camera(videoElement, {
+        onFrame: async () => {
+          await faceMesh.send({ image: videoElement });
+        },
+        width: 640,
+        height: 480
+      });
 
-        cameraInstance = new Camera(videoElement, {
-          onFrame: async () => {
-            if (isMonitoring) {
-              await faceMesh.send({ image: videoElement });
-            }
-          },
-          width: 640,
-          height: 480
-        });
-
-        try {
-          await cameraInstance.start();
-          isMonitoring = true;
-          btn.innerText = "PARAR MONITORAMENTO IA";
-          btn.style.backgroundColor = "var(--danger)";
-          btn.style.color = "#FFFFFF";
-        } catch (err) {
-          alert("Não foi possível aceder à câmara frontal. Verifique as permissões.");
-          btn.innerText = "INICIAR MONITORAMENTO IA";
-        }
-      } else {
-        isMonitoring = false;
-        if (cameraInstance) {
-          await cameraInstance.stop();
-        }
-        btn.innerText = "INICIAR MONITORAMENTO IA";
-        btn.style.backgroundColor = "var(--accent)";
-        btn.style.color = "#0b2230";
-        resetStatus();
+      try {
+        await cameraInstance.start();
+      } catch (err) {
+        console.error("Erro ao iniciar câmara:", err);
       }
     }
 
-    function onFaceResults(results) {
-      if (!isMonitoring) return;
+    function startCalibrationStep() {
+      const btn = document.getElementById('btn-action');
+      const title = document.getElementById('status-title');
+      const desc = document.getElementById('status-desc');
+      const badge = document.getElementById('status-badge');
 
+      appState = 'CALIBRATING';
+      badge.innerText = "⏳";
+      title.innerText = "LENDO POSTURA IDEAL...";
+      desc.innerText = "Mantenha-se reto por 2 segundos...";
+      btn.innerText = "SALVANDO CALIBRAÇÃO...";
+      btn.disabled = true;
+
+      // Trava os dados de referência após 2 segundos de estabilidade
+      setTimeout(() => {
+        if (baseFaceWidth && baseChinRatio) {
+          appState = 'MONITORING';
+          btn.innerText = "PARAR MONITORAMENTO";
+          btn.style.backgroundColor = "var(--danger)";
+          btn.style.color = "#FFFFFF";
+          btn.disabled = false;
+          
+          alert("Calibração concluída com sucesso! Postura travada.");
+        } else {
+          appState = 'IDLE';
+          btn.innerText = "TENTAR CALIBRAR NOVAMENTE";
+          btn.disabled = false;
+          alert("Rosto não centralizado corretamente. Enquadre dentro do círculo e tente de novo.");
+        }
+      }, 2000);
+    }
+
+    function processFaceLogic(results) {
       const card = document.getElementById('status-card');
       const badge = document.getElementById('status-badge');
       const title = document.getElementById('status-title');
       const desc = document.getElementById('status-desc');
+      const btn = document.getElementById('btn-action');
 
       if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
         const landmarks = results.multiFaceLandmarks[0];
 
-        // Pontos de Referência Faciais
         const noseTip = landmarks[1];
         const chin = landmarks[152];
         const forehead = landmarks[10];
         const leftCheek = landmarks[234];
         const rightCheek = landmarks[454];
 
-        // Largura e altura relativa do rosto no sensor
         const faceWidth = Math.abs(rightCheek.x - leftCheek.x);
         const faceHeight = Math.abs(chin.y - forehead.y);
-        
-        // Razão de inclinação vertical e projeção
         const noseToChinDistance = chin.y - noseTip.y;
         const chinRatio = noseToChinDistance / faceHeight;
 
-        // Auto-calibração no primeiro segundo na postura ereta
-        if (!calibratedFaceSize) {
-          calibratedFaceSize = faceWidth;
-          calibratedChinRatio = chinRatio;
+        // Se estiver no modo inicial ou calibrando, atualiza a referência provisória
+        if (appState === 'IDLE' || appState === 'CALIBRATING') {
+          baseFaceWidth = faceWidth;
+          baseChinRatio = chinRatio;
+          return;
         }
 
-        // Condições de Falha:
-        // 1. Inclinação normal da cabeça (Pitch para baixo)
-        const isHeadTiltedDown = chinRatio < (calibratedChinRatio * 0.85);
+        // Se já estiver em modo de MONITORAMENTO ativo:
+        if (appState === 'MONITORING') {
+          // Compara com a base calibrada estilo banco (tolerância de desvio de 20%)
+          const isForwardHeadPosture = faceWidth > (baseFaceWidth * 1.22); // Postura C / Pescoço colado
+          const isHeadTiltedDown = chinRatio < (baseChinRatio * 0.82);   // Cabeça para baixo
 
-        // 2. Projeção Cervical para a frente (Postura "C" - Rosto se aproxima anormalmente ou queixo cola no pescoço)
-        const isForwardHeadPosture = faceWidth > (calibratedFaceSize * 1.25);
+          if (isForwardHeadPosture || isHeadTiltedDown) {
+            if (card) card.style.backgroundColor = "#3B1818";
+            if (badge) {
+              badge.style.backgroundColor = "var(--danger)";
+              badge.innerText = "⚠️";
+            }
 
-        if (isHeadTiltedDown || isForwardHeadPosture) {
-          if (card) card.style.backgroundColor = "#3B1818";
-          if (badge) {
-            badge.style.backgroundColor = "var(--danger)";
-            badge.innerText = "⚠️";
-          }
+            if (isForwardHeadPosture) {
+              if (title) title.innerText = "POSTURA EM C DETECTADA!";
+              if (desc) desc.innerText = "Recue os ombros e desencoste o queixo!";
+            } else {
+              if (title) title.innerText = "CABEÇA INCLINADA!";
+              if (desc) desc.innerText = "Erga o rosto para a posição calibrada!";
+            }
 
-          if (isForwardHeadPosture) {
-            if (title) title.innerText = "DESENCOSTE O QUEIXO!";
-            if (desc) desc.innerText = "Postura em C detectada! Recue os ombros";
+            if (navigator.vibrate) {
+              navigator.vibrate([200, 100, 200]);
+            }
           } else {
-            if (title) title.innerText = "POSTURA INCORRETA!";
-            if (desc) desc.innerText = "Erga a cabeça e alinhe a coluna";
+            // Tudo OK - Postura idêntica à calibrada
+            if (card) card.style.backgroundColor = "var(--card-bg)";
+            if (badge) {
+              badge.style.backgroundColor = "var(--accent)";
+              badge.innerText = "✓";
+            }
+            if (title) title.innerText = "POSTURA PERFEITA!";
+            if (desc) desc.innerText = "Alinhado com a calibração inicial";
           }
-
-          if (navigator.vibrate) {
-            navigator.vibrate([200, 100, 200]);
-          }
-        } else {
-          resetStatus();
         }
       } else {
-        if (card) card.style.backgroundColor = "var(--card-bg)";
-        if (badge) {
-          badge.style.backgroundColor = "var(--subtext)";
-          badge.innerText = "❓";
+        if (appState === 'MONITORING') {
+          if (card) card.style.backgroundColor = "var(--card-bg)";
+          if (badge) {
+            badge.style.backgroundColor = "var(--subtext)";
+            badge.innerText = "❓";
+          }
+          if (title) title.innerText = "ROSTO FORA DO ENQUADRAMENTO";
+          if (desc) desc.innerText = "Volte para a frente da câmara";
         }
-        if (title) title.innerText = "ROSTO NÃO DETECTADO";
-        if (desc) desc.innerText = "Mantenha a câmara alinhada ao rosto";
       }
-    }
-
-    function resetStatus() {
-      const card = document.getElementById('status-card');
-      const badge = document.getElementById('status-badge');
-      const title = document.getElementById('status-title');
-      const desc = document.getElementById('status-desc');
-
-      if (card) card.style.backgroundColor = "var(--card-bg)";
-      if (badge) {
-        badge.style.backgroundColor = "var(--accent)";
-        badge.innerText = "✓";
-      }
-      if (title) title.innerText = "POSTURA ALINHADA!";
-      if (desc) desc.innerText = "Tronco ereto e ombros encaixados";
     }
 
     function selectPlan(element, url, days) {
