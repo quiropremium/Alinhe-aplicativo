@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Alinhe - Postura Correta</title>
 
+  <!-- Ícone do App -->
+  <link rel="icon" type="image/png" href="icon.png">
+
   <!-- Libs do MediaPipe para Rastreamento Facial -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
@@ -205,7 +208,7 @@
       margin-top: 10px;
     }
 
-    #camera-preview {
+    #camera-welcome {
       width: 100%;
       height: 100%;
       object-fit: cover;
@@ -248,7 +251,7 @@
       </div>
 
       <div class="card" style="text-align: left; padding: 12px;">
-        <p style="font-size: 12px; color: var(--subtext); text-align: center;" id="welcome-instruction">Sente-se ereto, encoste o rosto no círculo e olhe para frente.</p>
+        <p style="font-size: 12px; color: var(--subtext); text-align: center;">Sente-se ereto, encoste o rosto no círculo e olhe para frente.</p>
       </div>
 
       <button class="btn" onclick="captureCalibration()">SALVAR CALIBRAÇÃO E COMEÇAR</button>
@@ -371,7 +374,9 @@
     let cameraInstance = null;
     let faceMesh = null;
 
-    // Variáveis de calibração base
+    let currentFaceWidth = null;
+    let currentChinRatio = null;
+
     let baseFaceWidth = null;
     let baseChinRatio = null;
     let isCalibrated = false;
@@ -448,11 +453,13 @@
     }
 
     function captureCalibration() {
-      if (baseFaceWidth && baseChinRatio) {
+      if (currentFaceWidth && currentChinRatio) {
+        baseFaceWidth = currentFaceWidth;
+        baseChinRatio = currentChinRatio;
         isCalibrated = true;
         navigate('page-main');
       } else {
-        alert("Enquadre o seu rosto dentro do círculo tracejado antes de prosseguir.");
+        alert("Aguarde a câmara detetar o seu rosto dentro do guia antes de salvar.");
       }
     }
 
@@ -471,27 +478,28 @@
         const noseTip = landmarks[1];
         const chin = landmarks[152];
         const forehead = landmarks[10];
-        const leftCheek = landmarks[234];
-        const rightCheek = landmarks[454];
 
-        const faceWidth = Math.abs(rightCheek.x - leftCheek.x);
+        const faceWidth = Math.hypot(
+          landmarks[454].x - landmarks[234].x,
+          landmarks[454].y - landmarks[234].y
+        );
+        
         const faceHeight = Math.abs(chin.y - forehead.y);
         const noseToChinDistance = chin.y - noseTip.y;
         const chinRatio = noseToChinDistance / faceHeight;
 
-        if (!isCalibrated) {
-          baseFaceWidth = faceWidth;
-          baseChinRatio = chinRatio;
-          return;
-        }
+        currentFaceWidth = faceWidth;
+        currentChinRatio = chinRatio;
+
+        if (!isCalibrated) return;
 
         const card = document.getElementById('status-card');
         const badge = document.getElementById('status-badge');
         const title = document.getElementById('status-title');
         const desc = document.getElementById('status-desc');
 
-        const isForwardHeadPosture = faceWidth > (baseFaceWidth * 1.22);
-        const isHeadTiltedDown = chinRatio < (baseChinRatio * 0.82);
+        const isForwardHeadPosture = faceWidth > (baseFaceWidth * 1.20);
+        const isHeadTiltedDown = chinRatio < (baseChinRatio * 0.85);
 
         if (isForwardHeadPosture || isHeadTiltedDown) {
           if (card) card.style.backgroundColor = "#3B1818";
