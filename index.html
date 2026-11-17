@@ -233,7 +233,7 @@
 
   <div class="app-screen">
     
-    <!-- TELA 1: BOAS-VINDAS E CALIBRAÇÃO (ESTILO BANCO) -->
+    <!-- PÁGINA 1: BOAS-VINDAS E CALIBRAÇÃO -->
     <div id="page-welcome" class="page">
       <div class="header">
         <h2 style="font-size: 22px; color: var(--accent);">Alinhe</h2>
@@ -257,7 +257,7 @@
       <button class="btn" onclick="captureCalibration()">SALVAR CALIBRAÇÃO E COMEÇAR</button>
     </div>
 
-    <!-- TELA 2: MONITORAMENTO ATIVO -->
+    <!-- PÁGINA 2: MONITORAMENTO ATIVO -->
     <div id="page-main" class="page hidden">
       <div class="header">
         <h2 style="font-size: 22px; color: var(--accent);">Alinhe</h2>
@@ -284,7 +284,7 @@
       </div>
     </div>
 
-    <!-- TELA 3: DASHBOARD / ESTATÍSTICAS -->
+    <!-- PÁGINA 3: PAYWALL / PLANOS (E SUB-TELA DE ESTATÍSTICAS) -->
     <div id="page-stats" class="page hidden">
       <div class="header">
         <button onclick="navigate('page-main')" style="background:none; border:none; color:var(--text); font-size:18px; cursor:pointer;">← Voltar</button>
@@ -324,7 +324,6 @@
       </div>
     </div>
 
-    <!-- TELA 4: PAYWALL / COMPRA -->
     <div id="page-paywall" class="page hidden">
       <div class="header">
         <button onclick="navigate('page-main')" style="background:none; border:none; color:var(--text); font-size:18px; cursor:pointer;">← Voltar</button>
@@ -415,7 +414,7 @@
       if (isPremium) {
         navigate('page-stats');
       } else {
-        alert("Recurso exclusivo Premium! Assine para acessar suas estatísticas detalhadas.");
+        alert("Recurso exclusivo Premium! Assine para aceder às suas estatísticas detalhadas.");
         navigate('page-paywall');
       }
     }
